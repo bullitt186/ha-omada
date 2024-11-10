@@ -1,4 +1,4 @@
-# Home Assistant TP-Link Omada Integration
+# Home Assistant TP-Link Omada PoE Integration
 Adds Omada SDN Controller support to Home assistant. This integration requires [HACS](https://hacs.xyz).
 
 ## Features

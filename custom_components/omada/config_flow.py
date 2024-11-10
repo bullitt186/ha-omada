@@ -1,7 +1,7 @@
 import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
 from homeassistant import config_entries
-from homeassistant.const import CONF_URL, CONF_USERNAME, CONF_PASSWORD, CONF_VERIFY_SSL
+from homeassistant.const import CONF_PASSWORD, CONF_URL, CONF_USERNAME, CONF_VERIFY_SSL
 from homeassistant.core import callback
 from homeassistant.helpers.selector import (
     NumberSelector,
@@ -10,32 +10,35 @@ from homeassistant.helpers.selector import (
 )
 
 from .api.errors import (
+    InvalidURLError,
     LoginFailed,
     LoginRequired,
     OmadaApiException,
     RequestError,
     SSLError,
-    InvalidURLError,
     UnknownSite,
     UnsupportedVersion,
 )
 from .const import (
-    DOMAIN as OMADA_DOMAIN,
-    CONF_SITE,
-    CONF_SSID_FILTER,
     CONF_DISCONNECT_TIMEOUT,
+    CONF_ENABLE_CLIENT_BANDWIDTH_SENSORS,
+    CONF_ENABLE_CLIENT_BLOCK_SWITCH,
+    CONF_ENABLE_CLIENT_UPTIME_SENSORS,
+    CONF_ENABLE_DEVICE_BANDWIDTH_SENSORS,
+    CONF_ENABLE_DEVICE_CLIENTS_SENSORS,
+    CONF_ENABLE_DEVICE_CONTROLS,
+    CONF_ENABLE_DEVICE_RADIO_UTILIZATION_SENSORS,
+    CONF_ENABLE_DEVICE_STATISTICS_SENSORS,
     CONF_SCAN_INTERVAL,
     CONF_SCAN_INTERVAL_DETAILS,
+    CONF_SITE,
+    CONF_SNMP_COMMUNITY,
+    CONF_SSID_FILTER,
     CONF_TRACK_CLIENTS,
     CONF_TRACK_DEVICES,
-    CONF_ENABLE_CLIENT_BANDWIDTH_SENSORS,
-    CONF_ENABLE_CLIENT_UPTIME_SENSORS,
-    CONF_ENABLE_CLIENT_BLOCK_SWITCH,
-    CONF_ENABLE_DEVICE_BANDWIDTH_SENSORS,
-    CONF_ENABLE_DEVICE_RADIO_UTILIZATION_SENSORS,
-    CONF_ENABLE_DEVICE_CONTROLS,
-    CONF_ENABLE_DEVICE_STATISTICS_SENSORS,
-    CONF_ENABLE_DEVICE_CLIENTS_SENSORS,
+)
+from .const import (
+    DOMAIN as OMADA_DOMAIN,
 )
 from .controller import OmadaController, get_api_controller
 
@@ -71,6 +74,10 @@ class OmadaFlowHandler(config_entries.ConfigFlow, domain=OMADA_DOMAIN):
                     vol.Optional(
                         CONF_VERIFY_SSL, default=user_input.get(CONF_VERIFY_SSL, True)
                     ): bool,
+                    vol.Required(
+                        CONF_SNMP_COMMUNITY,
+                        default=user_input.get(CONF_SNMP_COMMUNITY, ""),
+                    ): str,
                 }
             ),
             errors=errors or {},
@@ -88,6 +95,7 @@ class OmadaFlowHandler(config_entries.ConfigFlow, domain=OMADA_DOMAIN):
                 CONF_USERNAME: user_input[CONF_USERNAME],
                 CONF_PASSWORD: user_input[CONF_PASSWORD],
                 CONF_VERIFY_SSL: user_input[CONF_VERIFY_SSL],
+                CONF_SNMP_COMMUNITY: user_input[CONF_SNMP_COMMUNITY],
             }
 
             try:
@@ -99,6 +107,7 @@ class OmadaFlowHandler(config_entries.ConfigFlow, domain=OMADA_DOMAIN):
                     30,
                     self.config[CONF_SITE],
                     self.config[CONF_VERIFY_SSL],
+                    self.config[CONF_SNMP_COMMUNITY],
                 )
 
                 return self.async_create_entry(
@@ -158,7 +167,9 @@ class OmadaOptionsFlowHandler(config_entries.OptionsFlow):
                         default=self.controller.option_scan_interval,
                     ): NumberSelector(
                         NumberSelectorConfig(
-                            min=10, mode=NumberSelectorMode.BOX, unit_of_measurement="seconds"
+                            min=10,
+                            mode=NumberSelectorMode.BOX,
+                            unit_of_measurement="seconds",
                         )
                     ),
                     vol.Optional(
@@ -166,7 +177,9 @@ class OmadaOptionsFlowHandler(config_entries.OptionsFlow):
                         default=self.controller.option_scan_interval_details,
                     ): NumberSelector(
                         NumberSelectorConfig(
-                            min=10, mode=NumberSelectorMode.BOX, unit_of_measurement="seconds"
+                            min=10,
+                            mode=NumberSelectorMode.BOX,
+                            unit_of_measurement="seconds",
                         )
                     ),
                     vol.Optional(
@@ -191,8 +204,9 @@ class OmadaOptionsFlowHandler(config_entries.OptionsFlow):
         ssid_filter = {ssid: ssid for ssid in sorted(self.controller.api.ssids)}
 
         # Remove selected options that may not exist anymore.
-        ssid_filter_default = list(filter(
-            lambda i: i in ssid_filter, self.controller.option_ssid_filter))
+        ssid_filter_default = list(
+            filter(lambda i: i in ssid_filter, self.controller.option_ssid_filter)
+        )
 
         return self.async_show_form(
             step_id="client_options",

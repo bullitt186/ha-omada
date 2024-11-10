@@ -2,30 +2,46 @@ from __future__ import annotations
 
 import ipaddress
 import logging
-
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Dict, Any, Mapping
+from typing import Any, Dict, Mapping
 
-from homeassistant.components.sensor import (DOMAIN, SensorDeviceClass, SensorEntity,
-                                             SensorEntityDescription)
-from homeassistant.const import (UnitOfInformation, UnitOfDataRate,
-                                 SIGNAL_STRENGTH_DECIBELS,
-                                 SIGNAL_STRENGTH_DECIBELS_MILLIWATT, PERCENTAGE)
+from homeassistant.components.sensor import (
+    DOMAIN,
+    SensorDeviceClass,
+    SensorEntity,
+    SensorEntityDescription,
+)
+from homeassistant.const import (
+    PERCENTAGE,
+    SIGNAL_STRENGTH_DECIBELS,
+    SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
+    UnitOfDataRate,
+    UnitOfInformation,
+)
 from homeassistant.core import callback
-from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
+from homeassistant.helpers.entity import EntityCategory
 from homeassistant.util import dt as dt_util
+from pysnmp.hlapi import *
 
+from .const import CLIENTS
+from .const import DOMAIN as OMADA_DOMAIN
 from .controller import OmadaController
-
-from .const import (DOMAIN as OMADA_DOMAIN, CLIENTS)
-from .omada_controller_entity import (OmadaControllerEntity, OmadaControllerEntityDescription,
-                                      device_info_fn as controller_device_info_fn,
-                                      unique_id_fn as controller_unique_id_fn)
-from .omada_entity import (OmadaEntity, OmadaEntityDescription, device_device_info_fn,
-                           client_device_info_fn, unique_id_fn)
+from .omada_controller_entity import (
+    OmadaControllerEntity,
+    OmadaControllerEntityDescription,
+)
+from .omada_controller_entity import device_info_fn as controller_device_info_fn
+from .omada_controller_entity import unique_id_fn as controller_unique_id_fn
+from .omada_entity import (
+    OmadaEntity,
+    OmadaEntityDescription,
+    client_device_info_fn,
+    device_device_info_fn,
+    unique_id_fn,
+)
 
 DOWNLOAD_SENSOR = "downloaded"
 UPLOAD_SENSOR = "uploaded"
@@ -51,7 +67,7 @@ RX_UTILIZATION_6G_SENSOR = "6ghz_rx_utilization"
 INTER_UTILIZATION_2G_SENSOR = "2ghz_interference_utilization"
 INTER_UTILIZATION_5G_SENSOR = "5ghz_interference_utilization"
 INTER_UTILIZATION_6G_SENSOR = "6ghz_interference_utilization"
-
+POE_POWER_OID = ".1.3.6.1.4.1.11863.6.56.1.1.2.1.1.7"
 LOGGER = logging.getLogger(__name__)
 
 
@@ -62,13 +78,21 @@ def controller_clients_value_fn(controller: OmadaController) -> int:
 
 
 @callback
-def controller_clients_extra_attributes_fn(controller: OmadaController) -> Mapping[str, Any]:
+def controller_clients_extra_attributes_fn(
+    controller: OmadaController,
+) -> Mapping[str, Any]:
     """Retrieve the extra attributes for the clients"""
     attributes = {}
     if controller.api.clients:
         # Convert list of clients to list of dicts with minimal attributes
-        clients = [{"mac": c.mac, "name": c.name, "ip": c.ip} for c in controller.api.clients.items.values()]
-        attributes["clients"] = sorted(clients, key=lambda x: ipaddress.ip_address(x["ip"] if x["ip"] else "0.0.0.0"))
+        clients = [
+            {"mac": c.mac, "name": c.name, "ip": c.ip}
+            for c in controller.api.clients.items.values()
+        ]
+        attributes["clients"] = sorted(
+            clients,
+            key=lambda x: ipaddress.ip_address(x["ip"] if x["ip"] else "0.0.0.0"),
+        )
     return attributes
 
 
@@ -110,7 +134,8 @@ def client_tx_value_fn(controller: OmadaController, mac: str) -> float:
         return round(controller.api.clients[mac].tx_rate / 1048576, 3)
     else:
         return 0
-    
+
+
 @callback
 def client_rssi_value_fn(controller: OmadaController, mac: str) -> float | None:
     """Retrieve client current RSSI"""
@@ -118,7 +143,8 @@ def client_rssi_value_fn(controller: OmadaController, mac: str) -> float | None:
         return round(controller.api.clients[mac].rssi)
     else:
         return None
-    
+
+
 @callback
 def client_snr_value_fn(controller: OmadaController, mac: str) -> float | None:
     """Retrieve client current SNR"""
@@ -126,6 +152,7 @@ def client_snr_value_fn(controller: OmadaController, mac: str) -> float | None:
         return round(controller.api.clients[mac].snr)
     else:
         return None
+
 
 @callback
 def client_uptime_value_fn(controller: OmadaController, mac: str) -> int:
@@ -292,26 +319,26 @@ class OmadaControllerSensorEntityDescription(
 ):
     """Omada Controller Sensor Entity Description"""
 
-    should_update_fn: Callable[[
-        Any, Any], bool] | None = lambda prev_value, next_value: prev_value != next_value
+    should_update_fn: Callable[[Any, Any], bool] | None = (
+        lambda prev_value, next_value: prev_value != next_value
+    )
     value_format_fn: Callable[[Any], Any] | None = None
 
 
 @dataclass
-class OmadaSensorEntityDescriptionMixin():
+class OmadaSensorEntityDescriptionMixin:
     value_fn: Callable[[OmadaController, str], float | int | None]
 
 
 @dataclass
 class OmadaSensorEntityDescription(
-    SensorEntityDescription,
-    OmadaEntityDescription,
-    OmadaSensorEntityDescriptionMixin
+    SensorEntityDescription, OmadaEntityDescription, OmadaSensorEntityDescriptionMixin
 ):
     """Omada Sensor Entity Description"""
 
-    should_update_fn: Callable[[
-        Any, Any], bool] | None = lambda prev_value, next_value: prev_value != next_value
+    should_update_fn: Callable[[Any, Any], bool] | None = (
+        lambda prev_value, next_value: prev_value != next_value
+    )
     value_format_fn: Callable[[Any], Any] | None = None
 
 
@@ -327,7 +354,7 @@ CONTROLLER_ENTITY_DESCRIPTIONS: Dict[str, OmadaControllerSensorEntityDescription
         name_fn=lambda *_: "Clients",
         unique_id_fn=controller_unique_id_fn,
         value_fn=controller_clients_value_fn,
-        extra_attributes_fn=controller_clients_extra_attributes_fn
+        extra_attributes_fn=controller_clients_extra_attributes_fn,
     ),
 }
 
@@ -339,15 +366,17 @@ CLIENT_ENTITY_DESCRIPTIONS: Dict[str, OmadaSensorEntityDescription] = {
         native_unit_of_measurement=UnitOfInformation.MEGABYTES,
         has_entity_name=True,
         icon="mdi:download",
-        allowed_fn=lambda controller, mac: (controller.option_client_bandwidth_sensors and
-                                            controller.option_track_clients and
-                                            controller.is_client_allowed(mac)),
+        allowed_fn=lambda controller, mac: (
+            controller.option_client_bandwidth_sensors
+            and controller.option_track_clients
+            and controller.is_client_allowed(mac)
+        ),
         supported_fn=lambda *_: True,
         available_fn=lambda controller, _: controller.available,
         device_info_fn=client_device_info_fn,
         name_fn=lambda *_: "Downloaded",
         unique_id_fn=unique_id_fn,
-        value_fn=client_download_value_fn
+        value_fn=client_download_value_fn,
     ),
     UPLOAD_SENSOR: OmadaSensorEntityDescription(
         domain=DOMAIN,
@@ -356,15 +385,17 @@ CLIENT_ENTITY_DESCRIPTIONS: Dict[str, OmadaSensorEntityDescription] = {
         native_unit_of_measurement=UnitOfInformation.MEGABYTES,
         has_entity_name=True,
         icon="mdi:upload",
-        allowed_fn=lambda controller, mac: (controller.option_client_bandwidth_sensors and
-                                            controller.option_track_clients and
-                                            controller.is_client_allowed(mac)),
+        allowed_fn=lambda controller, mac: (
+            controller.option_client_bandwidth_sensors
+            and controller.option_track_clients
+            and controller.is_client_allowed(mac)
+        ),
         supported_fn=lambda *_: True,
         available_fn=lambda controller, _: controller.available,
         device_info_fn=client_device_info_fn,
         name_fn=lambda *_: "Uploaded",
         unique_id_fn=unique_id_fn,
-        value_fn=client_upload_value_fn
+        value_fn=client_upload_value_fn,
     ),
     RX_SENSOR: OmadaSensorEntityDescription(
         domain=DOMAIN,
@@ -373,15 +404,17 @@ CLIENT_ENTITY_DESCRIPTIONS: Dict[str, OmadaSensorEntityDescription] = {
         native_unit_of_measurement=UnitOfDataRate.MEGABYTES_PER_SECOND,
         has_entity_name=True,
         icon="mdi:download",
-        allowed_fn=lambda controller, mac: (controller.option_client_bandwidth_sensors and
-                                            controller.option_track_clients and
-                                            controller.is_client_allowed(mac)),
+        allowed_fn=lambda controller, mac: (
+            controller.option_client_bandwidth_sensors
+            and controller.option_track_clients
+            and controller.is_client_allowed(mac)
+        ),
         supported_fn=lambda controller, mac: controller.api.known_clients[mac].wireless,
         available_fn=lambda controller, _: controller.available,
         device_info_fn=client_device_info_fn,
         name_fn=lambda *_: "RX Activity",
         unique_id_fn=unique_id_fn,
-        value_fn=client_rx_value_fn
+        value_fn=client_rx_value_fn,
     ),
     TX_SENSOR: OmadaSensorEntityDescription(
         domain=DOMAIN,
@@ -390,15 +423,17 @@ CLIENT_ENTITY_DESCRIPTIONS: Dict[str, OmadaSensorEntityDescription] = {
         native_unit_of_measurement=UnitOfDataRate.MEGABYTES_PER_SECOND,
         has_entity_name=True,
         icon="mdi:upload",
-        allowed_fn=lambda controller, mac: (controller.option_client_bandwidth_sensors and
-                                            controller.option_track_clients and
-                                            controller.is_client_allowed(mac)),
+        allowed_fn=lambda controller, mac: (
+            controller.option_client_bandwidth_sensors
+            and controller.option_track_clients
+            and controller.is_client_allowed(mac)
+        ),
         supported_fn=lambda controller, mac: controller.api.known_clients[mac].wireless,
         available_fn=lambda controller, _: controller.available,
         device_info_fn=client_device_info_fn,
         name_fn=lambda *_: "TX Activity",
         unique_id_fn=unique_id_fn,
-        value_fn=client_tx_value_fn
+        value_fn=client_tx_value_fn,
     ),
     RSSI_SENSOR: OmadaSensorEntityDescription(
         domain=DOMAIN,
@@ -407,15 +442,17 @@ CLIENT_ENTITY_DESCRIPTIONS: Dict[str, OmadaSensorEntityDescription] = {
         native_unit_of_measurement=SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
         has_entity_name=True,
         icon="mdi:signal",
-        allowed_fn=lambda controller, mac: (controller.option_device_clients_sensors and
-                                            controller.option_track_clients and
-                                            controller.is_client_allowed(mac)),
+        allowed_fn=lambda controller, mac: (
+            controller.option_device_clients_sensors
+            and controller.option_track_clients
+            and controller.is_client_allowed(mac)
+        ),
         supported_fn=lambda controller, mac: controller.api.known_clients[mac].wireless,
         available_fn=lambda controller, _: controller.available,
         device_info_fn=client_device_info_fn,
         name_fn=lambda *_: "RSSI",
         unique_id_fn=unique_id_fn,
-        value_fn=client_rssi_value_fn
+        value_fn=client_rssi_value_fn,
     ),
     SNR_SENSOR: OmadaSensorEntityDescription(
         domain=DOMAIN,
@@ -424,15 +461,17 @@ CLIENT_ENTITY_DESCRIPTIONS: Dict[str, OmadaSensorEntityDescription] = {
         native_unit_of_measurement=SIGNAL_STRENGTH_DECIBELS,
         has_entity_name=True,
         icon="mdi:signal",
-        allowed_fn=lambda controller, mac: (controller.option_device_clients_sensors and
-                                            controller.option_track_clients and
-                                            controller.is_client_allowed(mac)),
+        allowed_fn=lambda controller, mac: (
+            controller.option_device_clients_sensors
+            and controller.option_track_clients
+            and controller.is_client_allowed(mac)
+        ),
         supported_fn=lambda controller, mac: controller.api.known_clients[mac].wireless,
         available_fn=lambda controller, _: controller.available,
         device_info_fn=client_device_info_fn,
         name_fn=lambda *_: "SNR",
         unique_id_fn=unique_id_fn,
-        value_fn=client_snr_value_fn
+        value_fn=client_snr_value_fn,
     ),
     UPTIME_SENSOR: OmadaSensorEntityDescription(
         domain=DOMAIN,
@@ -440,21 +479,24 @@ CLIENT_ENTITY_DESCRIPTIONS: Dict[str, OmadaSensorEntityDescription] = {
         entity_category=EntityCategory.DIAGNOSTIC,
         device_class=SensorDeviceClass.TIMESTAMP,
         has_entity_name=True,
-        allowed_fn=lambda controller, mac: (controller.option_client_uptime_sensor and
-                                            controller.option_track_clients and
-                                            controller.is_client_allowed(mac)),
+        allowed_fn=lambda controller, mac: (
+            controller.option_client_uptime_sensor
+            and controller.option_track_clients
+            and controller.is_client_allowed(mac)
+        ),
         supported_fn=lambda *_: True,
         available_fn=lambda controller, _: controller.available,
         device_info_fn=client_device_info_fn,
         name_fn=lambda *_: "Uptime",
         unique_id_fn=unique_id_fn,
         value_fn=client_uptime_value_fn,
-        should_update_fn=lambda prev_value, next_value: ((prev_value == None or next_value == None) and
-                                                         (prev_value != next_value)) or
-                                                        (prev_value != None and next_value != None and
-                                                         next_value < prev_value),
-        value_format_fn=lambda value: value != None and dt_util.now() -
-        timedelta(seconds=value) or None
+        should_update_fn=lambda prev_value, next_value: (
+            (prev_value == None or next_value == None) and (prev_value != next_value)
+        )
+        or (prev_value != None and next_value != None and next_value < prev_value),
+        value_format_fn=lambda value: value != None
+        and dt_util.now() - timedelta(seconds=value)
+        or None,
     ),
 }
 
@@ -466,14 +508,16 @@ DEVICE_ENTITY_DESCRIPTIONS: Dict[str, OmadaSensorEntityDescription] = {
         native_unit_of_measurement=UnitOfInformation.MEGABYTES,
         has_entity_name=True,
         icon="mdi:download",
-        allowed_fn=lambda controller, _: (controller.option_device_bandwidth_sensors and
-                                          controller.option_track_devices),
+        allowed_fn=lambda controller, _: (
+            controller.option_device_bandwidth_sensors
+            and controller.option_track_devices
+        ),
         supported_fn=lambda *_: True,
         available_fn=lambda controller, _: controller.available,
         device_info_fn=device_device_info_fn,
         name_fn=lambda *_: "Downloaded",
         unique_id_fn=unique_id_fn,
-        value_fn=device_download_value_fn
+        value_fn=device_download_value_fn,
     ),
     UPLOAD_SENSOR: OmadaSensorEntityDescription(
         domain=DOMAIN,
@@ -482,14 +526,16 @@ DEVICE_ENTITY_DESCRIPTIONS: Dict[str, OmadaSensorEntityDescription] = {
         native_unit_of_measurement=UnitOfInformation.MEGABYTES,
         has_entity_name=True,
         icon="mdi:upload",
-        allowed_fn=lambda controller, _: (controller.option_device_bandwidth_sensors and
-                                          controller.option_track_devices),
+        allowed_fn=lambda controller, _: (
+            controller.option_device_bandwidth_sensors
+            and controller.option_track_devices
+        ),
         supported_fn=lambda *_: True,
         available_fn=lambda controller, _: controller.available,
         device_info_fn=device_device_info_fn,
         name_fn=lambda *_: "Uploaded",
         unique_id_fn=unique_id_fn,
-        value_fn=device_upload_value_fn
+        value_fn=device_upload_value_fn,
     ),
     RX_SENSOR: OmadaSensorEntityDescription(
         domain=DOMAIN,
@@ -498,14 +544,16 @@ DEVICE_ENTITY_DESCRIPTIONS: Dict[str, OmadaSensorEntityDescription] = {
         native_unit_of_measurement=UnitOfDataRate.MEGABYTES_PER_SECOND,
         has_entity_name=True,
         icon="mdi:download",
-        allowed_fn=lambda controller, _: (controller.option_device_bandwidth_sensors and
-                                          controller.option_track_devices),
+        allowed_fn=lambda controller, _: (
+            controller.option_device_bandwidth_sensors
+            and controller.option_track_devices
+        ),
         supported_fn=lambda *_: True,
         available_fn=lambda controller, _: controller.available,
         device_info_fn=device_device_info_fn,
         name_fn=lambda *_: "RX Activity",
         unique_id_fn=unique_id_fn,
-        value_fn=device_rx_value_fn
+        value_fn=device_rx_value_fn,
     ),
     TX_SENSOR: OmadaSensorEntityDescription(
         domain=DOMAIN,
@@ -514,14 +562,16 @@ DEVICE_ENTITY_DESCRIPTIONS: Dict[str, OmadaSensorEntityDescription] = {
         native_unit_of_measurement=UnitOfDataRate.MEGABYTES_PER_SECOND,
         has_entity_name=True,
         icon="mdi:upload",
-        allowed_fn=lambda controller, _: (controller.option_device_bandwidth_sensors and
-                                          controller.option_track_devices),
+        allowed_fn=lambda controller, _: (
+            controller.option_device_bandwidth_sensors
+            and controller.option_track_devices
+        ),
         supported_fn=lambda *_: True,
         available_fn=lambda controller, _: controller.available,
         device_info_fn=device_device_info_fn,
         name_fn=lambda *_: "TX Activity",
         unique_id_fn=unique_id_fn,
-        value_fn=device_tx_value_fn
+        value_fn=device_tx_value_fn,
     ),
     CPU_USAGE_SENSOR: OmadaSensorEntityDescription(
         domain=DOMAIN,
@@ -530,14 +580,16 @@ DEVICE_ENTITY_DESCRIPTIONS: Dict[str, OmadaSensorEntityDescription] = {
         native_unit_of_measurement=PERCENTAGE,
         has_entity_name=True,
         icon="mdi:chip",
-        allowed_fn=lambda controller, _: (controller.option_device_statistics_sensors and
-                                          controller.option_track_devices),
+        allowed_fn=lambda controller, _: (
+            controller.option_device_statistics_sensors
+            and controller.option_track_devices
+        ),
         supported_fn=lambda *_: True,
         available_fn=lambda controller, _: controller.available,
         device_info_fn=device_device_info_fn,
         name_fn=lambda *_: "CPU Usage",
         unique_id_fn=unique_id_fn,
-        value_fn=device_cpu_value_fn
+        value_fn=device_cpu_value_fn,
     ),
     MEMORY_USAGE_SENSOR: OmadaSensorEntityDescription(
         domain=DOMAIN,
@@ -546,14 +598,16 @@ DEVICE_ENTITY_DESCRIPTIONS: Dict[str, OmadaSensorEntityDescription] = {
         native_unit_of_measurement=PERCENTAGE,
         has_entity_name=True,
         icon="mdi:memory",
-        allowed_fn=lambda controller, _: (controller.option_device_statistics_sensors and
-                                          controller.option_track_devices),
+        allowed_fn=lambda controller, _: (
+            controller.option_device_statistics_sensors
+            and controller.option_track_devices
+        ),
         supported_fn=lambda *_: True,
         available_fn=lambda controller, _: controller.available,
         device_info_fn=device_device_info_fn,
         name_fn=lambda *_: "Memory Usage",
         unique_id_fn=unique_id_fn,
-        value_fn=device_memory_value_fn
+        value_fn=device_memory_value_fn,
     ),
     UPTIME_SENSOR: OmadaSensorEntityDescription(
         domain=DOMAIN,
@@ -561,20 +615,23 @@ DEVICE_ENTITY_DESCRIPTIONS: Dict[str, OmadaSensorEntityDescription] = {
         entity_category=EntityCategory.DIAGNOSTIC,
         device_class=SensorDeviceClass.TIMESTAMP,
         has_entity_name=True,
-        allowed_fn=lambda controller, _: (controller.option_device_statistics_sensors and
-                                          controller.option_track_devices),
+        allowed_fn=lambda controller, _: (
+            controller.option_device_statistics_sensors
+            and controller.option_track_devices
+        ),
         supported_fn=lambda *_: True,
         available_fn=lambda controller, _: controller.available,
         device_info_fn=device_device_info_fn,
         name_fn=lambda *_: "Uptime",
         unique_id_fn=unique_id_fn,
         value_fn=device_uptime_value_fn,
-        should_update_fn=lambda prev_value, next_value: ((prev_value == None or next_value == None) and
-                                                         (prev_value != next_value)) or
-        (prev_value != None and next_value != None and
-         next_value < prev_value),
-        value_format_fn=lambda value: value != None and dt_util.now() -
-        timedelta(seconds=value) or None
+        should_update_fn=lambda prev_value, next_value: (
+            (prev_value == None or next_value == None) and (prev_value != next_value)
+        )
+        or (prev_value != None and next_value != None and next_value < prev_value),
+        value_format_fn=lambda value: value != None
+        and dt_util.now() - timedelta(seconds=value)
+        or None,
     ),
     CLIENTS_SENSOR: OmadaSensorEntityDescription(
         domain=DOMAIN,
@@ -583,14 +640,15 @@ DEVICE_ENTITY_DESCRIPTIONS: Dict[str, OmadaSensorEntityDescription] = {
         native_unit_of_measurement=CLIENTS,
         has_entity_name=True,
         icon="mdi:devices",
-        allowed_fn=lambda controller, _: (controller.option_device_clients_sensors and
-                                          controller.option_track_devices),
+        allowed_fn=lambda controller, _: (
+            controller.option_device_clients_sensors and controller.option_track_devices
+        ),
         supported_fn=lambda *_: True,
         available_fn=lambda controller, _: controller.available,
         device_info_fn=device_device_info_fn,
         name_fn=lambda *_: "Clients",
         unique_id_fn=unique_id_fn,
-        value_fn=device_clients_value_fn
+        value_fn=device_clients_value_fn,
     ),
     CLIENTS_2G_SENSOR: OmadaSensorEntityDescription(
         domain=DOMAIN,
@@ -599,14 +657,17 @@ DEVICE_ENTITY_DESCRIPTIONS: Dict[str, OmadaSensorEntityDescription] = {
         native_unit_of_measurement=CLIENTS,
         has_entity_name=True,
         icon="mdi:devices",
-        allowed_fn=lambda controller, _: (controller.option_device_clients_sensors and
-                                          controller.option_track_devices),
-        supported_fn=lambda controller, mac: controller.api.devices[mac].radio_enabled_2ghz,
+        allowed_fn=lambda controller, _: (
+            controller.option_device_clients_sensors and controller.option_track_devices
+        ),
+        supported_fn=lambda controller, mac: controller.api.devices[
+            mac
+        ].radio_enabled_2ghz,
         available_fn=lambda controller, _: controller.available,
         device_info_fn=device_device_info_fn,
         name_fn=lambda *_: "2.4Ghz Clients",
         unique_id_fn=unique_id_fn,
-        value_fn=device_clients_2g_value_fn
+        value_fn=device_clients_2g_value_fn,
     ),
     CLIENTS_5G_SENSOR: OmadaSensorEntityDescription(
         domain=DOMAIN,
@@ -615,14 +676,17 @@ DEVICE_ENTITY_DESCRIPTIONS: Dict[str, OmadaSensorEntityDescription] = {
         native_unit_of_measurement=CLIENTS,
         has_entity_name=True,
         icon="mdi:devices",
-        allowed_fn=lambda controller, _: (controller.option_device_clients_sensors and
-                                          controller.option_track_devices),
-        supported_fn=lambda controller, mac: controller.api.devices[mac].radio_enabled_5ghz,
+        allowed_fn=lambda controller, _: (
+            controller.option_device_clients_sensors and controller.option_track_devices
+        ),
+        supported_fn=lambda controller, mac: controller.api.devices[
+            mac
+        ].radio_enabled_5ghz,
         available_fn=lambda controller, _: controller.available,
         device_info_fn=device_device_info_fn,
         name_fn=lambda *_: "5Ghz Clients",
         unique_id_fn=unique_id_fn,
-        value_fn=device_clients_5g_value_fn
+        value_fn=device_clients_5g_value_fn,
     ),
     CLIENTS_6G_SENSOR: OmadaSensorEntityDescription(
         domain=DOMAIN,
@@ -631,14 +695,17 @@ DEVICE_ENTITY_DESCRIPTIONS: Dict[str, OmadaSensorEntityDescription] = {
         native_unit_of_measurement=CLIENTS,
         has_entity_name=True,
         icon="mdi:devices",
-        allowed_fn=lambda controller, _: (controller.option_device_clients_sensors and
-                                          controller.option_track_devices),
-        supported_fn=lambda controller, mac: controller.api.devices[mac].radio_enabled_6ghz,
+        allowed_fn=lambda controller, _: (
+            controller.option_device_clients_sensors and controller.option_track_devices
+        ),
+        supported_fn=lambda controller, mac: controller.api.devices[
+            mac
+        ].radio_enabled_6ghz,
         available_fn=lambda controller, _: controller.available,
         device_info_fn=device_device_info_fn,
         name_fn=lambda *_: "6Ghz Clients",
         unique_id_fn=unique_id_fn,
-        value_fn=device_clients_6g_value_fn
+        value_fn=device_clients_6g_value_fn,
     ),
     GUESTS_SENSOR: OmadaSensorEntityDescription(
         domain=DOMAIN,
@@ -647,14 +714,15 @@ DEVICE_ENTITY_DESCRIPTIONS: Dict[str, OmadaSensorEntityDescription] = {
         native_unit_of_measurement=CLIENTS,
         has_entity_name=True,
         icon="mdi:devices",
-        allowed_fn=lambda controller, _: (controller.option_device_clients_sensors and
-                                          controller.option_track_devices),
+        allowed_fn=lambda controller, _: (
+            controller.option_device_clients_sensors and controller.option_track_devices
+        ),
         supported_fn=lambda controller, mac: controller.api.devices[mac].type == "ap",
         available_fn=lambda controller, _: controller.available,
         device_info_fn=device_device_info_fn,
         name_fn=lambda *_: "Guests",
         unique_id_fn=unique_id_fn,
-        value_fn=device_guests_value_fn
+        value_fn=device_guests_value_fn,
     ),
     USERS_SENSOR: OmadaSensorEntityDescription(
         domain=DOMAIN,
@@ -663,14 +731,15 @@ DEVICE_ENTITY_DESCRIPTIONS: Dict[str, OmadaSensorEntityDescription] = {
         native_unit_of_measurement=CLIENTS,
         has_entity_name=True,
         icon="mdi:devices",
-        allowed_fn=lambda controller, _: (controller.option_device_clients_sensors and
-                                          controller.option_track_devices),
+        allowed_fn=lambda controller, _: (
+            controller.option_device_clients_sensors and controller.option_track_devices
+        ),
         supported_fn=lambda controller, mac: controller.api.devices[mac].type == "ap",
         available_fn=lambda controller, _: controller.available,
         device_info_fn=device_device_info_fn,
         name_fn=lambda *_: "Users",
         unique_id_fn=unique_id_fn,
-        value_fn=device_users_value_fn
+        value_fn=device_users_value_fn,
     ),
     TX_UTILIZATION_2G_SENSOR: OmadaSensorEntityDescription(
         domain=DOMAIN,
@@ -679,14 +748,16 @@ DEVICE_ENTITY_DESCRIPTIONS: Dict[str, OmadaSensorEntityDescription] = {
         native_unit_of_measurement=PERCENTAGE,
         has_entity_name=True,
         icon="mdi:signal-variant",
-        allowed_fn=lambda controller, _: (controller.option_device_radio_utilization_sensors and
-                                          controller.option_track_devices),
+        allowed_fn=lambda controller, _: (
+            controller.option_device_radio_utilization_sensors
+            and controller.option_track_devices
+        ),
         supported_fn=lambda *_: True,
         available_fn=lambda controller, _: controller.available,
         device_info_fn=device_device_info_fn,
         name_fn=lambda *_: "2.4Ghz TX Utilization",
         unique_id_fn=unique_id_fn,
-        value_fn=device_tx_utilization_2g_value_fn
+        value_fn=device_tx_utilization_2g_value_fn,
     ),
     TX_UTILIZATION_5G_SENSOR: OmadaSensorEntityDescription(
         domain=DOMAIN,
@@ -695,14 +766,18 @@ DEVICE_ENTITY_DESCRIPTIONS: Dict[str, OmadaSensorEntityDescription] = {
         native_unit_of_measurement=PERCENTAGE,
         has_entity_name=True,
         icon="mdi:signal-variant",
-        allowed_fn=lambda controller, _: (controller.option_device_radio_utilization_sensors and
-                                          controller.option_track_devices),
-        supported_fn=lambda controller, mac: controller.api.devices[mac].radio_enabled_5ghz,
+        allowed_fn=lambda controller, _: (
+            controller.option_device_radio_utilization_sensors
+            and controller.option_track_devices
+        ),
+        supported_fn=lambda controller, mac: controller.api.devices[
+            mac
+        ].radio_enabled_5ghz,
         available_fn=lambda controller, _: controller.available,
         device_info_fn=device_device_info_fn,
         name_fn=lambda *_: "5Ghz TX Utilization",
         unique_id_fn=unique_id_fn,
-        value_fn=device_tx_utilization_5g_value_fn
+        value_fn=device_tx_utilization_5g_value_fn,
     ),
     TX_UTILIZATION_6G_SENSOR: OmadaSensorEntityDescription(
         domain=DOMAIN,
@@ -711,14 +786,18 @@ DEVICE_ENTITY_DESCRIPTIONS: Dict[str, OmadaSensorEntityDescription] = {
         native_unit_of_measurement=PERCENTAGE,
         has_entity_name=True,
         icon="mdi:signal-variant",
-        allowed_fn=lambda controller, _: (controller.option_device_radio_utilization_sensors and
-                                          controller.option_track_devices),
-        supported_fn=lambda controller, mac: controller.api.devices[mac].radio_enabled_6ghz,
+        allowed_fn=lambda controller, _: (
+            controller.option_device_radio_utilization_sensors
+            and controller.option_track_devices
+        ),
+        supported_fn=lambda controller, mac: controller.api.devices[
+            mac
+        ].radio_enabled_6ghz,
         available_fn=lambda controller, _: controller.available,
         device_info_fn=device_device_info_fn,
         name_fn=lambda *_: "6Ghz TX Utilization",
         unique_id_fn=unique_id_fn,
-        value_fn=device_tx_utilization_6g_value_fn
+        value_fn=device_tx_utilization_6g_value_fn,
     ),
     RX_UTILIZATION_2G_SENSOR: OmadaSensorEntityDescription(
         domain=DOMAIN,
@@ -727,14 +806,18 @@ DEVICE_ENTITY_DESCRIPTIONS: Dict[str, OmadaSensorEntityDescription] = {
         native_unit_of_measurement=PERCENTAGE,
         has_entity_name=True,
         icon="mdi:signal-variant",
-        allowed_fn=lambda controller, _: (controller.option_device_radio_utilization_sensors and
-                                          controller.option_track_devices),
-        supported_fn=lambda controller, mac: controller.api.devices[mac].radio_enabled_2ghz,
+        allowed_fn=lambda controller, _: (
+            controller.option_device_radio_utilization_sensors
+            and controller.option_track_devices
+        ),
+        supported_fn=lambda controller, mac: controller.api.devices[
+            mac
+        ].radio_enabled_2ghz,
         available_fn=lambda controller, _: controller.available,
         device_info_fn=device_device_info_fn,
         name_fn=lambda *_: "2.4Ghz RX Utilization",
         unique_id_fn=unique_id_fn,
-        value_fn=device_rx_utilization_2g_value_fn
+        value_fn=device_rx_utilization_2g_value_fn,
     ),
     RX_UTILIZATION_5G_SENSOR: OmadaSensorEntityDescription(
         domain=DOMAIN,
@@ -743,14 +826,18 @@ DEVICE_ENTITY_DESCRIPTIONS: Dict[str, OmadaSensorEntityDescription] = {
         native_unit_of_measurement=PERCENTAGE,
         has_entity_name=True,
         icon="mdi:signal-variant",
-        allowed_fn=lambda controller, _: (controller.option_device_radio_utilization_sensors and
-                                          controller.option_track_devices),
-        supported_fn=lambda controller, mac: controller.api.devices[mac].radio_enabled_5ghz,
+        allowed_fn=lambda controller, _: (
+            controller.option_device_radio_utilization_sensors
+            and controller.option_track_devices
+        ),
+        supported_fn=lambda controller, mac: controller.api.devices[
+            mac
+        ].radio_enabled_5ghz,
         available_fn=lambda controller, _: controller.available,
         device_info_fn=device_device_info_fn,
         name_fn=lambda *_: "5Ghz RX Utilization",
         unique_id_fn=unique_id_fn,
-        value_fn=device_rx_utilization_5g_value_fn
+        value_fn=device_rx_utilization_5g_value_fn,
     ),
     RX_UTILIZATION_6G_SENSOR: OmadaSensorEntityDescription(
         domain=DOMAIN,
@@ -759,14 +846,18 @@ DEVICE_ENTITY_DESCRIPTIONS: Dict[str, OmadaSensorEntityDescription] = {
         native_unit_of_measurement=PERCENTAGE,
         has_entity_name=True,
         icon="mdi:signal-variant",
-        allowed_fn=lambda controller, _: (controller.option_device_radio_utilization_sensors and
-                                          controller.option_track_devices),
-        supported_fn=lambda controller, mac: controller.api.devices[mac].radio_enabled_6ghz,
+        allowed_fn=lambda controller, _: (
+            controller.option_device_radio_utilization_sensors
+            and controller.option_track_devices
+        ),
+        supported_fn=lambda controller, mac: controller.api.devices[
+            mac
+        ].radio_enabled_6ghz,
         available_fn=lambda controller, _: controller.available,
         device_info_fn=device_device_info_fn,
         name_fn=lambda *_: "6Ghz RX Utilization",
         unique_id_fn=unique_id_fn,
-        value_fn=device_rx_utilization_6g_value_fn
+        value_fn=device_rx_utilization_6g_value_fn,
     ),
     INTER_UTILIZATION_2G_SENSOR: OmadaSensorEntityDescription(
         domain=DOMAIN,
@@ -775,14 +866,16 @@ DEVICE_ENTITY_DESCRIPTIONS: Dict[str, OmadaSensorEntityDescription] = {
         native_unit_of_measurement=PERCENTAGE,
         has_entity_name=True,
         icon="mdi:signal-variant",
-        allowed_fn=lambda controller, _: (controller.option_device_radio_utilization_sensors and
-                                          controller.option_track_devices),
+        allowed_fn=lambda controller, _: (
+            controller.option_device_radio_utilization_sensors
+            and controller.option_track_devices
+        ),
         supported_fn=lambda *_: True,
         available_fn=lambda controller, _: controller.available,
         device_info_fn=device_device_info_fn,
         name_fn=lambda *_: "2.4Ghz Interference",
         unique_id_fn=unique_id_fn,
-        value_fn=device_inter_utilization_2g_value_fn
+        value_fn=device_inter_utilization_2g_value_fn,
     ),
     INTER_UTILIZATION_5G_SENSOR: OmadaSensorEntityDescription(
         domain=DOMAIN,
@@ -791,14 +884,18 @@ DEVICE_ENTITY_DESCRIPTIONS: Dict[str, OmadaSensorEntityDescription] = {
         native_unit_of_measurement=PERCENTAGE,
         has_entity_name=True,
         icon="mdi:signal-variant",
-        allowed_fn=lambda controller, _: (controller.option_device_radio_utilization_sensors and
-                                          controller.option_track_devices),
-        supported_fn=lambda controller, mac: controller.api.devices[mac].radio_enabled_5ghz,
+        allowed_fn=lambda controller, _: (
+            controller.option_device_radio_utilization_sensors
+            and controller.option_track_devices
+        ),
+        supported_fn=lambda controller, mac: controller.api.devices[
+            mac
+        ].radio_enabled_5ghz,
         available_fn=lambda controller, _: controller.available,
         device_info_fn=device_device_info_fn,
         name_fn=lambda *_: "5Ghz Interference",
         unique_id_fn=unique_id_fn,
-        value_fn=device_inter_utilization_5g_value_fn
+        value_fn=device_inter_utilization_5g_value_fn,
     ),
     INTER_UTILIZATION_6G_SENSOR: OmadaSensorEntityDescription(
         domain=DOMAIN,
@@ -807,15 +904,19 @@ DEVICE_ENTITY_DESCRIPTIONS: Dict[str, OmadaSensorEntityDescription] = {
         native_unit_of_measurement=PERCENTAGE,
         has_entity_name=True,
         icon="mdi:signal-variant",
-        allowed_fn=lambda controller, _: (controller.option_device_radio_utilization_sensors and
-                                          controller.option_track_devices),
-        supported_fn=lambda controller, mac: controller.api.devices[mac].radio_enabled_6ghz,
+        allowed_fn=lambda controller, _: (
+            controller.option_device_radio_utilization_sensors
+            and controller.option_track_devices
+        ),
+        supported_fn=lambda controller, mac: controller.api.devices[
+            mac
+        ].radio_enabled_6ghz,
         available_fn=lambda controller, _: controller.available,
         device_info_fn=device_device_info_fn,
         name_fn=lambda *_: "6Ghz Interference",
         unique_id_fn=unique_id_fn,
-        value_fn=device_inter_utilization_6g_value_fn
-    )
+        value_fn=device_inter_utilization_6g_value_fn,
+    ),
 }
 
 
@@ -835,18 +936,21 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                 controller.api.clients,
                 OmadaSensorEntity,
                 CLIENT_ENTITY_DESCRIPTIONS,
-                async_add_entities)
+                async_add_entities,
+            )
 
         if controller.option_track_devices:
             controller.register_platform_entities(
                 controller.api.devices,
                 OmadaSensorEntity,
                 DEVICE_ENTITY_DESCRIPTIONS,
-                async_add_entities)
+                async_add_entities,
+            )
 
     for signal in (controller.signal_update, controller.signal_options_update):
         config_entry.async_on_unload(
-            async_dispatcher_connect(hass, signal, items_added))
+            async_dispatcher_connect(hass, signal, items_added)
+        )
 
     if controller.option_track_clients:
         controller.restore_cleanup_platform_entities(
@@ -857,10 +961,27 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             OmadaSensorEntity,
             CLIENT_ENTITY_DESCRIPTIONS,
             config_entry,
-            async_add_entities
+            async_add_entities,
         )
 
+    await self.add_poe_power_sensors(controller, async_add_entities)
+
     items_added()
+
+
+async def add_poe_power_sensors(controller, async_add_entities):
+    switches = (
+        await controller.api.switches
+    )  # Assume you have this function to fetch all switches
+    for switch in switches:
+        if switch["type"] == "switch":  # Only process switches for PoE
+            port_list = await controller.fetch_switch_info(
+                switch["mac"]
+            )  # Pass the switch MAC address
+            for port in port_list:
+                index = port["id"]  # Use the appropriate property for the port index
+                entity = PoEPowerSensor(switch["mac"], controller, index)
+                async_add_entities([entity])
 
 
 class OmadaControllerSensorEntity(OmadaControllerEntity, SensorEntity):
@@ -886,11 +1007,12 @@ class OmadaControllerSensorEntity(OmadaControllerEntity, SensorEntity):
 
         next_value = self.entity_description.value_fn(self.controller)
 
-        if force_update or self.entity_description.should_update_fn(prev_value, next_value):
+        if force_update or self.entity_description.should_update_fn(
+            prev_value, next_value
+        ):
             if self.entity_description.value_format_fn != None:
                 self._internal_value = next_value
-                next_value = self.entity_description.value_format_fn(
-                    next_value)
+                next_value = self.entity_description.value_format_fn(next_value)
 
             self._attr_native_value = next_value
 
@@ -916,7 +1038,9 @@ class OmadaSensorEntity(OmadaEntity, SensorEntity):
     entity_description: OmadaSensorEntityDescription
     _internal_value: Any | None = None
 
-    def __init__(self, mac: str, controller: OmadaController, description: OmadaEntityDescription) -> None:
+    def __init__(
+        self, mac: str, controller: OmadaController, description: OmadaEntityDescription
+    ) -> None:
 
         super().__init__(mac, controller, description)
 
@@ -930,14 +1054,14 @@ class OmadaSensorEntity(OmadaEntity, SensorEntity):
         else:
             prev_value = self._attr_native_value
 
-        next_value = self.entity_description.value_fn(
-            self.controller, self._mac)
+        next_value = self.entity_description.value_fn(self.controller, self._mac)
 
-        if force_update or self.entity_description.should_update_fn(prev_value, next_value):
+        if force_update or self.entity_description.should_update_fn(
+            prev_value, next_value
+        ):
             if self.entity_description.value_format_fn != None:
                 self._internal_value = next_value
-                next_value = self.entity_description.value_format_fn(
-                    next_value)
+                next_value = self.entity_description.value_format_fn(next_value)
 
             self._attr_native_value = next_value
 
@@ -949,3 +1073,58 @@ class OmadaSensorEntity(OmadaEntity, SensorEntity):
     async def async_update(self):
         if self.update_value():
             await super().async_update()
+
+
+class PoEPowerSensor(OmadaSensorEntity):
+    """Representation of a PoE Power consumption sensor."""
+
+    def __init__(self, mac: str, controller: OmadaController, port_index: str) -> None:
+        super().__init__(mac, controller, description)
+        self.port_index = port_index
+        self._attr_unique_id = f"{self._mac}-poe-power-{self.port_index}"
+        self._attr_name = f"Port {self.port_index} Power Consumption"
+        self._attr_native_unit_of_measurement = "W"  # Watts
+
+    async def async_update(self):
+        """Get the current state of the sensor."""
+        snmp_community = self.controller.snmp_community()
+        ip_address = self.controller.api.devices[self._mac].ip  # Get device IP
+        power_consumption = await self.query_poe_power(
+            ip_address, snmp_community, self.port_index
+        )
+        self._attr_native_value = power_consumption
+
+    async def query_poe_power(self, ip_address: str, community: str, port_index: str):
+        """Query the PoE power consumption using SNMP."""
+        try:
+            object_id = f"{POE_POWER_OID}.{port_index}"
+            iterator = getCmd(
+                SnmpEngine(),
+                CommunityData(community),
+                UdpTransportTarget((ip_address, 161)),
+                ContextData(),
+                ObjectType(ObjectIdentity(object_id)),
+            )
+
+            (
+                errorIndication,
+                errorStatus,
+                errorIndex,
+                varBinds,
+            ) = await asyncio.get_event_loop().run_in_executor(
+                None, lambda: next(iterator)
+            )
+
+            if errorIndication:
+                _LOGGER.error("SNMP error: %s", errorIndication)
+                return None
+            if errorStatus:
+                _LOGGER.error("Error Status: %s", errorStatus.prettyPrint())
+                return None
+
+            # Access the value returned
+            for varBind in varBinds:
+                return int(varBind[1])  # Assuming value is in Watts
+        except Exception as e:
+            _LOGGER.error("Failed to query SNMP: %s", e)
+            return None

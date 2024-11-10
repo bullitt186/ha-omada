@@ -1,9 +1,9 @@
 {
   "domain": "omada",
-  "name": "TP-Link Omada",
-  "documentation": "https://github.com/zachcheatham/ha-omada",
-  "codeowners": ["@zachcheatham"],
+  "name": "TP-Link Omada PoE",
+  "documentation": "https://github.com/bullitt168/ha-omada",
+  "codeowners": ["@bullitt168"],
   "config_flow": true,
-  "version": "0.6.0-beta.1",
+  "version": "0.6.0-poe",
   "iot_class": "local_polling"
 }

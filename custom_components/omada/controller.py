@@ -1,33 +1,51 @@
 import logging
 import ssl
-
-from aiohttp import CookieJar
 from datetime import datetime, timedelta
 from typing import Dict
 
-
+from aiohttp import CookieJar
 from homeassistant.components.device_tracker import DOMAIN
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import (
-    CONF_PASSWORD, CONF_URL, CONF_USERNAME, CONF_VERIFY_SSL)
+from homeassistant.const import CONF_PASSWORD, CONF_URL, CONF_USERNAME, CONF_VERIFY_SSL
 from homeassistant.core import CALLBACK_TYPE, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
-from homeassistant.helpers import aiohttp_client, entity_registry, device_registry
+from homeassistant.helpers import aiohttp_client, device_registry, entity_registry
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.entity_registry import async_entries_for_config_entry, async_entries_for_device
+from homeassistant.helpers.entity_registry import (
+    async_entries_for_config_entry,
+    async_entries_for_device,
+)
 from homeassistant.helpers.event import async_track_time_interval
 
 from .api.controller import Controller
-from .api.errors import (LoginFailed, OmadaApiException,
-                         OperationForbidden, RequestError, LoginRequired, UnknownSite)
-from .const import (CONF_SITE, CONF_SSID_FILTER, CONF_DISCONNECT_TIMEOUT,
-                    CONF_SCAN_INTERVAL, CONF_SCAN_INTERVAL_DETAILS, CONF_TRACK_CLIENTS,
-                    CONF_TRACK_DEVICES, CONF_ENABLE_CLIENT_BANDWIDTH_SENSORS,
-                    CONF_ENABLE_CLIENT_UPTIME_SENSORS, CONF_ENABLE_CLIENT_BLOCK_SWITCH,
-                    CONF_ENABLE_DEVICE_BANDWIDTH_SENSORS, CONF_ENABLE_DEVICE_RADIO_UTILIZATION_SENSORS,
-                    CONF_ENABLE_DEVICE_CONTROLS, CONF_ENABLE_DEVICE_STATISTICS_SENSORS,
-                    CONF_ENABLE_DEVICE_CLIENTS_SENSORS, DOMAIN as OMADA_DOMAIN)
+from .api.errors import (
+    LoginFailed,
+    LoginRequired,
+    OmadaApiException,
+    OperationForbidden,
+    RequestError,
+    UnknownSite,
+)
+from .const import (
+    CONF_DISCONNECT_TIMEOUT,
+    CONF_ENABLE_CLIENT_BANDWIDTH_SENSORS,
+    CONF_ENABLE_CLIENT_BLOCK_SWITCH,
+    CONF_ENABLE_CLIENT_UPTIME_SENSORS,
+    CONF_ENABLE_DEVICE_BANDWIDTH_SENSORS,
+    CONF_ENABLE_DEVICE_CLIENTS_SENSORS,
+    CONF_ENABLE_DEVICE_CONTROLS,
+    CONF_ENABLE_DEVICE_RADIO_UTILIZATION_SENSORS,
+    CONF_ENABLE_DEVICE_STATISTICS_SENSORS,
+    CONF_SCAN_INTERVAL,
+    CONF_SCAN_INTERVAL_DETAILS,
+    CONF_SITE,
+    CONF_SNMP_COMMUNITY,
+    CONF_SSID_FILTER,
+    CONF_TRACK_CLIENTS,
+    CONF_TRACK_DEVICES,
+)
+from .const import DOMAIN as OMADA_DOMAIN
 from .omada_entity import OmadaEntity, OmadaEntityDescription
 
 LOGGER = logging.getLogger(__name__)
@@ -68,13 +86,27 @@ class OmadaController:
         self.option_scan_interval_details = options.get(CONF_SCAN_INTERVAL_DETAILS, 120)
         self.option_track_clients = options.get(CONF_TRACK_CLIENTS, True)
         self.option_track_devices = options.get(CONF_TRACK_DEVICES, True)
-        self.option_client_bandwidth_sensors = options.get(CONF_ENABLE_CLIENT_BANDWIDTH_SENSORS, False)
-        self.option_client_uptime_sensor = options.get(CONF_ENABLE_CLIENT_UPTIME_SENSORS, False)
-        self.option_client_block_switch = options.get(CONF_ENABLE_CLIENT_BLOCK_SWITCH, False)
-        self.option_device_bandwidth_sensors = options.get(CONF_ENABLE_DEVICE_BANDWIDTH_SENSORS, False)
-        self.option_device_statistics_sensors = options.get(CONF_ENABLE_DEVICE_STATISTICS_SENSORS, False)
-        self.option_device_clients_sensors = options.get(CONF_ENABLE_DEVICE_CLIENTS_SENSORS, False)
-        self.option_device_radio_utilization_sensors = options.get(CONF_ENABLE_DEVICE_RADIO_UTILIZATION_SENSORS, False)
+        self.option_client_bandwidth_sensors = options.get(
+            CONF_ENABLE_CLIENT_BANDWIDTH_SENSORS, False
+        )
+        self.option_client_uptime_sensor = options.get(
+            CONF_ENABLE_CLIENT_UPTIME_SENSORS, False
+        )
+        self.option_client_block_switch = options.get(
+            CONF_ENABLE_CLIENT_BLOCK_SWITCH, False
+        )
+        self.option_device_bandwidth_sensors = options.get(
+            CONF_ENABLE_DEVICE_BANDWIDTH_SENSORS, False
+        )
+        self.option_device_statistics_sensors = options.get(
+            CONF_ENABLE_DEVICE_STATISTICS_SENSORS, False
+        )
+        self.option_device_clients_sensors = options.get(
+            CONF_ENABLE_DEVICE_CLIENTS_SENSORS, False
+        )
+        self.option_device_radio_utilization_sensors = options.get(
+            CONF_ENABLE_DEVICE_RADIO_UTILIZATION_SENSORS, False
+        )
         self.option_device_controls = options.get(CONF_ENABLE_DEVICE_CONTROLS, False)
 
     @property
@@ -111,6 +143,10 @@ class OmadaController:
         return self._config_entry.data[CONF_DISCONNECT_TIMEOUT]
 
     @property
+    def snmp_community(self):
+        return self._config_entry.data[CONF_SNMP_COMMUNITY]
+
+    @property
     def scan_interval(self):
         return timedelta(seconds=self.option_scan_interval)
 
@@ -129,7 +165,13 @@ class OmadaController:
     async def async_setup(self):
         try:
             self.api = await get_api_controller(
-                self.hass, self.url, self.username, self.password, self.req_timeout, self.site, self.verify_ssl
+                self.hass,
+                self.url,
+                self.username,
+                self.password,
+                self.req_timeout,
+                self.site,
+                self.verify_ssl,
             )
         except LoginFailed as err:
             raise ConfigEntryAuthFailed from err
@@ -140,8 +182,9 @@ class OmadaController:
 
         await self.async_update()
 
-        self.async_on_close(async_track_time_interval(
-            self.hass, self.async_update, self.scan_interval))
+        self.async_on_close(
+            async_track_time_interval(self.hass, self.async_update, self.scan_interval)
+        )
 
         self._config_entry.add_update_listener(self.async_config_entry_updated)
 
@@ -150,8 +193,11 @@ class OmadaController:
         LOGGER.debug("Polling controller...")
 
         available = False
-        update_all: bool = (event_time is None or self._last_full_update is None or
-                            self._last_full_update <= event_time - self.scan_interval_details)
+        update_all: bool = (
+            event_time is None
+            or self._last_full_update is None
+            or self._last_full_update <= event_time - self.scan_interval_details
+        )
 
         for _ in range(2):
             try:
@@ -168,12 +214,10 @@ class OmadaController:
 
                 break
             except LoginRequired:
-                LOGGER.warning(
-                    "Token possibly expired to Omada API. Renewing...")
+                LOGGER.warning("Token possibly expired to Omada API. Renewing...")
                 await self.api.login()
             except RequestError as err:
-                LOGGER.error(
-                    "Unable to connect to Omada: %s. Renewing login...", err)
+                LOGGER.error("Unable to connect to Omada: %s. Renewing login...", err)
                 await self.api.login()
             except OmadaApiException as err:
                 LOGGER.error("Omada API error: %s", err)
@@ -193,11 +237,17 @@ class OmadaController:
         for func in self._on_close:
             func()
 
-        return await self.hass.config_entries.async_unload_platforms(self._config_entry, [DOMAIN])
+        return await self.hass.config_entries.async_unload_platforms(
+            self._config_entry, [DOMAIN]
+        )
 
     def is_client_allowed(self, client_mac: str) -> bool:
         """Return whether a client can be included due to the ssid filter settings"""
-        return not self.option_ssid_filter or client_mac not in self.api.clients or self.api.clients[client_mac].ssid in self.option_ssid_filter
+        return (
+            not self.option_ssid_filter
+            or client_mac not in self.api.clients
+            or self.api.clients[client_mac].ssid in self.option_ssid_filter
+        )
 
     @callback
     def register_platform_entities(
@@ -205,7 +255,7 @@ class OmadaController:
         macs: set[str],
         platform_entity: type[OmadaEntity],
         descriptions: Dict[str, OmadaEntityDescription],
-        async_add_entities: AddEntitiesCallback
+        async_add_entities: AddEntitiesCallback,
     ):
         """Load requested platform entities for each mac address when not already added"""
         entities: list[OmadaEntity] = []
@@ -218,8 +268,11 @@ class OmadaController:
                 self.entities[description.domain][description.key] = set()
 
             for mac in macs:
-                if (mac not in self.entities[description.domain][description.key] and
-                        description.allowed_fn(self, mac) and description.supported_fn(self, mac)):
+                if (
+                    mac not in self.entities[description.domain][description.key]
+                    and description.allowed_fn(self, mac)
+                    and description.supported_fn(self, mac)
+                ):
 
                     entity = platform_entity(mac, self, description)
                     entities.append(entity)
@@ -238,7 +291,7 @@ class OmadaController:
         descriptions: Dict[str, OmadaEntityDescription],
         config_entry: ConfigEntry,
         async_add_entities: AddEntitiesCallback,
-        default_description_key: str | None = None
+        default_description_key: str | None = None,
     ):
         """Load or remove platform entities after setup for existing config entries"""
 
@@ -261,31 +314,42 @@ class OmadaController:
                     mac = entry.unique_id
                     description = descriptions[default_description_key]
 
-                if isinstance(description, OmadaEntityDescription) and mac not in ignore_macs:
+                if (
+                    isinstance(description, OmadaEntityDescription)
+                    and mac not in ignore_macs
+                ):
                     if mac not in active_macs and mac in stored_macs:
                         if not description.domain in self.entities:
                             self.entities[description.domain] = {}
                         if not description.key in self.entities[description.domain]:
                             self.entities[description.domain][description.key] = set()
 
-                        if not mac in self.entities[description.domain][description.key]:
+                        if (
+                            not mac
+                            in self.entities[description.domain][description.key]
+                        ):
                             entity = platform_entity(mac, self, description)
                             entities.append(entity)
-                    elif (mac not in stored_macs or not description.allowed_fn(self, mac)
-                          or not description.supported_fn(self, mac)):
+                    elif (
+                        mac not in stored_macs
+                        or not description.allowed_fn(self, mac)
+                        or not description.supported_fn(self, mac)
+                    ):
 
                         # Remove device entry if we are the last entity
                         device_entry = dr.async_get(entry.device_id)
                         if (
-                            device_entry and 
-                            len(
+                            device_entry
+                            and len(
                                 entries_for_device := async_entries_for_device(
                                     er, entry.device_id, include_disabled_entities=True
-                            )) == 1
+                                )
+                            )
+                            == 1
                         ):
                             er.async_remove(entry.entity_id)
                             dr.async_remove_device(device_entry.id)
-                        
+
                         # Remove Omada from device if other entries exist
                         elif (
                             len(
@@ -295,7 +359,8 @@ class OmadaController:
                                     if entry_for_device.config_entry_id
                                     == self._config_entry.entry_id
                                 ]
-                            ) != len(entries_for_device)
+                            )
+                            != len(entries_for_device)
                             and len(entries_for_device_from_this_config_entry) == 1
                         ):
                             er.async_remove(entry.entity_id)
@@ -317,7 +382,9 @@ class OmadaController:
         async_dispatcher_send(hass, controller.signal_options_update)
 
 
-async def get_api_controller(hass, url, username, password, req_timeout, site, verify_ssl):
+async def get_api_controller(
+    hass, url, username, password, req_timeout, site, verify_ssl
+):
     ssl_context = None
 
     if verify_ssl:
@@ -329,8 +396,15 @@ async def get_api_controller(hass, url, username, password, req_timeout, site, v
             hass, verify_ssl=verify_ssl, cookie_jar=CookieJar(unsafe=True)
         )
 
-    controller = Controller(url, username, password, req_timeout,
-                            session, site=site, ssl_context=ssl_context)
+    controller = Controller(
+        url,
+        username,
+        password,
+        req_timeout,
+        session,
+        site=site,
+        ssl_context=ssl_context,
+    )
 
     try:
         await controller.login()
@@ -341,17 +415,28 @@ async def get_api_controller(hass, url, username, password, req_timeout, site, v
             await controller.update_ssids()
         except OperationForbidden as err:
             if controller.version < "5.0.0":
-                LOGGER.warning("API returned 'operation forbidden' while retrieving SSID stats. This is "
-                               "indicative of an invalid site id.")
+                LOGGER.warning(
+                    "API returned 'operation forbidden' while retrieving SSID stats. This is "
+                    "indicative of an invalid site id."
+                )
                 raise UnknownSite(f"Possible invalid site '{site}'.")
             else:
                 raise err
 
         return controller
     except LoginFailed as err:
-        LOGGER.warning(
-            "Connected to Omada at %s but unauthorized: %s", url, err)
+        LOGGER.warning("Connected to Omada at %s but unauthorized: %s", url, err)
         raise err
     except OmadaApiException as err:
-        LOGGER.warning("Unable to connect to Omada at %s: %s: %s", url, type(err).__name__ ,err)
+        LOGGER.warning(
+            "Unable to connect to Omada at %s: %s: %s", url, type(err).__name__, err
+        )
         raise err
+
+
+async def fetch_switch_info(self, switch_mac: str):
+    """Fetch switch information including ports for a specific switch."""
+    response = await self.api.get(
+        f"/openapi/v1/{self.api.controller_id}/sites/{self.site}/switches/{switch_mac}"
+    )
+    return response.get("portList", [])
